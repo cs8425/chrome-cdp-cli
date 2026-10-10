@@ -45,6 +45,7 @@ func (a *App) cmdMCP() *cobra.Command {
 	var readOnly bool
 	var allowEval bool
 	var tools string
+	var includeStructuredContent bool
 	c := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve these verbs to an MCP client over stdio (requires a configured policy)",
@@ -74,12 +75,13 @@ func (a *App) cmdMCP() *cobra.Command {
 			denied := a.denyEscapeHatchVerbs(allowEval)
 			runner := a.newMCPRunner()
 			srv, err := mcp.New(runner, mcp.Options{
-				ReadOnly:  readOnly,
-				Tools:     tools,
-				DenyVerbs: denied,
-				Target:    a.targetFlag,
-				Version:   Version,
-				Log:       a.err,
+				ReadOnly:                 readOnly,
+				Tools:                    tools,
+				DenyVerbs:                denied,
+				IncludeStructuredContent: includeStructuredContent,
+				Target:                   a.targetFlag,
+				Version:                  Version,
+				Log:                      a.err,
 			})
 			if err != nil {
 				a.emitErr("mcp", result.CodeUsage, err.Error(), nil)
@@ -109,6 +111,7 @@ func (a *App) cmdMCP() *cobra.Command {
 	c.Flags().BoolVar(&allowEval, "allow-eval", false,
 		"expose `eval` and `raw`, which can navigate the tab out of the allow-list (denied by default in this mode)")
 	c.Flags().StringVar(&tools, "tools", mcp.SetDefault, "tool set: default | full | a comma-separated list of tool names")
+	c.Flags().BoolVar(&includeStructuredContent, "include-structured-content", false, "workaround for some mcp client which don't parse `structuredContent` field")
 	return c
 }
 

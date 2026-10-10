@@ -53,6 +53,8 @@ type Options struct {
 	// Target pins every call to one tab. With it set, a call that names a
 	// different tab is refused rather than silently redirected.
 	Target string
+	// workaround for some mcp client which don't parse structuredContent
+	IncludeStructuredContent bool
 	// Version is reported to the client in the initialize handshake.
 	Version string
 	// Log receives human diagnostics. It must never be stdout: stdout carries
@@ -364,7 +366,7 @@ func (s *Server) hiddenToolMiddleware(next sdk.MethodHandler) sdk.MethodHandler 
 			}
 		}
 		reason += ". Exposed tools: " + strings.Join(toolNames(s.order), ", ")
-		return errorResult(result.CodeUsage, reason, nil), nil
+		return errorResult(result.CodeUsage, reason, nil, &s.opts), nil
 	}
 }
 
@@ -400,7 +402,7 @@ func (s *Server) handler(t *tool) sdk.ToolHandler {
 		var raw map[string]any
 		if len(req.Params.Arguments) > 0 {
 			if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
-				return errorResult(result.CodeUsage, fmt.Sprintf("%s: arguments must be a JSON object: %v", t.name, err), nil), nil
+				return errorResult(result.CodeUsage, fmt.Sprintf("%s: arguments must be a JSON object: %v", t.name, err), nil, &s.opts), nil
 			}
 		}
 		if t.name == prefix+"batch" {
@@ -415,20 +417,20 @@ func (s *Server) handler(t *tool) sdk.ToolHandler {
 func (s *Server) callTool(ctx context.Context, t *tool, raw map[string]any) *sdk.CallToolResult {
 	args, err := t.validate(raw, s.enumFor(t))
 	if err != nil {
-		return usageResult(err)
+		return usageResult(err, &s.opts)
 	}
 	if err := s.applyTarget(args); err != nil {
-		return usageResult(err)
+		return usageResult(err, &s.opts)
 	}
 	c := &call{tool: t, args: args}
 	verb, flags, pos, err := t.build(c)
 	if err != nil {
-		return usageResult(err)
+		return usageResult(err, &s.opts)
 	}
 	// Belt to the enum's braces: even if a grouped tool's filtering missed a
 	// value, a verb --read-only withholds never runs on a --read-only server.
 	if s.opts.ReadOnly && refusedByReadOnly(verb) {
-		return usageResult(usagef("%s: %q changes the page or the set of open tabs, and this server is running --read-only", t.name, verb))
+		return usageResult(usagef("%s: %q changes the page or the set of open tabs, and this server is running --read-only", t.name, verb), &s.opts)
 	}
 
 	// The capture verbs return their bytes through a file. With no `output`
@@ -438,7 +440,7 @@ func (s *Server) callTool(ctx context.Context, t *tool, raw map[string]any) *sdk
 	if t.image {
 		shot, err = newCapture(args)
 		if err != nil {
-			return errorResult(result.CodeGeneric, err.Error(), nil)
+			return errorResult(result.CodeGeneric, err.Error(), nil, &s.opts)
 		}
 		defer shot.cleanup()
 		flags = append(flags, shot.flags()...)
@@ -451,7 +453,7 @@ func (s *Server) callTool(ctx context.Context, t *tool, raw map[string]any) *sdk
 			fmt.Fprintf(s.opts.Log, "chrome-cdp mcp: %v\n", err)
 		}
 	}
-	return res.toolResult()
+	return res.toolResult(&s.opts)
 }
 
 // argvFor assembles the command line: the verb, then every generated flag,
@@ -500,11 +502,11 @@ func (s *Server) applyTarget(args map[string]any) error {
 func (s *Server) runBatch(ctx context.Context, t *tool, raw map[string]any) *sdk.CallToolResult {
 	args, err := t.validate(raw, s.enumFor(t))
 	if err != nil {
-		return usageResult(err)
+		return usageResult(err, &s.opts)
 	}
 	steps, _ := args["steps"].([]any)
 	if len(steps) == 0 {
-		return usageResult(usagef("batch: `steps` must list at least one step"))
+		return usageResult(usagef("batch: `steps` must list at least one step"), &s.opts)
 	}
 
 	// Validate the whole plan BEFORE running any of it: a batch whose third
@@ -517,22 +519,22 @@ func (s *Server) runBatch(ctx context.Context, t *tool, raw map[string]any) *sdk
 	for i, raw := range steps {
 		m, ok := raw.(map[string]any)
 		if !ok {
-			return usageResult(usagef("batch: step %d must be an object of {tool, arguments}", i+1))
+			return usageResult(usagef("batch: step %d must be an object of {tool, arguments}", i+1), &s.opts)
 		}
 		name, _ := m["tool"].(string)
 		name = strings.TrimSpace(name)
 		if name == "" {
-			return usageResult(usagef("batch: step %d has no `tool`", i+1))
+			return usageResult(usagef("batch: step %d has no `tool`", i+1), &s.opts)
 		}
 		if !strings.HasPrefix(name, prefix) {
 			name = prefix + name
 		}
 		if name == t.name {
-			return usageResult(usagef("batch: step %d is another batch; flatten the steps instead", i+1))
+			return usageResult(usagef("batch: step %d is another batch; flatten the steps instead", i+1), &s.opts)
 		}
 		st, ok := s.exposed[name]
 		if !ok {
-			return usageResult(usagef("batch: step %d names %q, which this server does not expose (exposed: %s)", i+1, name, strings.Join(toolNames(s.order), ", ")))
+			return usageResult(usagef("batch: step %d names %q, which this server does not expose (exposed: %s)", i+1, name, strings.Join(toolNames(s.order), ", ")), &s.opts)
 		}
 		stepArgs, _ := m["arguments"].(map[string]any)
 		if stepArgs == nil {
@@ -540,7 +542,7 @@ func (s *Server) runBatch(ctx context.Context, t *tool, raw map[string]any) *sdk
 		}
 		for k := range m {
 			if k != "tool" && k != "arguments" {
-				return usageResult(usagef("batch: step %d has an unknown field %q (want tool, arguments)", i+1, k))
+				return usageResult(usagef("batch: step %d has an unknown field %q (want tool, arguments)", i+1, k), &s.opts)
 			}
 		}
 		plan = append(plan, planned{tool: st, args: stepArgs})

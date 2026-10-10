@@ -861,6 +861,7 @@ It is a front end, not a fork: a tool call becomes the same argv you would type,
 | `--tools <set>` | `default` | `default`, `full`, or a comma-separated list of tool names |
 | `--allow-eval` | off | expose `eval` and `raw`, which are denied in this mode by default |
 | `--target <spec>` | — | pin the server to one tab; otherwise each tool takes a `target` |
+| `--include-structured-content` | off | workaround for some mcp client which don't parse `structuredContent` field |
 
 Global flags (`--timeout`, `--no-daemon`, `--port`, `--profile-dir`, `--allow`, config file) apply unchanged, and the daemon still holds the connection — a long-lived server over one shared connection is exactly what it is for.
 Transport is stdio only; there is no HTTP or SSE mode, because a network-reachable server driving your authenticated browser is a different security posture.

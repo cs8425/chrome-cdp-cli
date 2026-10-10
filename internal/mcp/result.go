@@ -127,28 +127,39 @@ func errObject(code, msg string, details map[string]any) map[string]any {
 }
 
 // toolResult renders the outcome as the MCP result.
-func (o *outcome) toolResult() *sdk.CallToolResult {
+func (o *outcome) toolResult(opt *Options) *sdk.CallToolResult {
 	res := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: o.summary()}}}
 	if len(o.image) > 0 {
 		res.Content = append(res.Content, &sdk.ImageContent{Data: o.image, MIMEType: o.mime})
 	}
 	if o.OK {
 		res.StructuredContent = o.Result
+
+		// workaround for mcp client not parse StructuredContent
+		if opt.IncludeStructuredContent {
+			jsonBuf, _ := json.Marshal(o.Result)
+			res.Content = append(res.Content, &sdk.TextContent{Text: string(jsonBuf)})
+		}
 		return res
 	}
 	res.IsError = true
 	res.StructuredContent = o.Err
+
+	if opt.IncludeStructuredContent {
+		jsonBuf, _ := json.Marshal(o.Err)
+		res.Content = append(res.Content, &sdk.TextContent{Text: string(jsonBuf)})
+	}
 	return res
 }
 
 // usageResult is a caller mistake caught before the browser was contacted.
-func usageResult(err error) *sdk.CallToolResult {
-	return errorResult(result.CodeUsage, err.Error(), nil)
+func usageResult(err error, opt *Options) *sdk.CallToolResult {
+	return errorResult(result.CodeUsage, err.Error(), nil, opt)
 }
 
-func errorResult(code, msg string, details map[string]any) *sdk.CallToolResult {
+func errorResult(code, msg string, details map[string]any, opt *Options) *sdk.CallToolResult {
 	o := &outcome{Err: errObject(code, msg, details), Exit: result.ExitCodeFor(code)}
-	return o.toolResult()
+	return o.toolResult(opt)
 }
 
 // summary is the one-line human rendering in the text content block.
