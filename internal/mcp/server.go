@@ -344,6 +344,7 @@ func (s *Server) ServeHttp(ctx context.Context, bindAddr string, cors bool) erro
 		return s.GetMcpServer()
 	}, &sdk.StreamableHTTPOptions{
 		Stateless:                  false,
+		JSONResponse:               true,
 		DisableLocalhostProtection: cors,
 	})
 	var handler http.Handler

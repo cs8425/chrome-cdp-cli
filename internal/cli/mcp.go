@@ -44,6 +44,7 @@ import (
 func (a *App) cmdMCP() *cobra.Command {
 	var readOnly bool
 	var allowEval bool
+	var disableSafetyPolicies bool
 	var tools string
 	var includeStructuredContent bool
 	var bindHttp string
@@ -70,7 +71,7 @@ func (a *App) cmdMCP() *cobra.Command {
 			// stream exists, so a client sees a process that failed to start
 			// with a readable reason rather than a server that answers every
 			// call with an error.
-			if perr := a.mcpPolicyGate(); perr != nil {
+			if perr := a.mcpPolicyGate(disableSafetyPolicies); perr != nil {
 				a.emitErr("mcp", perr.Code, perr.Message, perr.Details)
 				return nil
 			}
@@ -123,6 +124,7 @@ func (a *App) cmdMCP() *cobra.Command {
 	c.Flags().BoolVar(&readOnly, "read-only", false, "expose only tools that cannot modify page state")
 	c.Flags().BoolVar(&allowEval, "allow-eval", false,
 		"expose `eval` and `raw`, which can navigate the tab out of the allow-list (denied by default in this mode)")
+	c.Flags().BoolVar(&disableSafetyPolicies, "disable-safety-policies", false, "DANGEROUS: disable all safety policies. Use only in a fully trusted, local, sandboxed environment.")
 	c.Flags().StringVar(&tools, "tools", mcp.SetDefault, "tool set: default | full | a comma-separated list of tool names")
 	c.Flags().BoolVar(&includeStructuredContent, "include-structured-content", false, "workaround for some mcp client which don't parse `structuredContent` field")
 	c.Flags().StringVar(&bindHttp, "http", "", "run as a stateful Streamable HTTP MCP server, e.g. for llama.cpp's built-in Web UI")
@@ -190,8 +192,8 @@ func mustSpecs(readOnly bool, tools string, denied []string) []mcp.ToolSpec {
 // RequireAllow expresses the same rule inside the checker (an empty allow-list
 // refuses everything rather than permitting everything), and refusing here as
 // well means the user learns why at launch instead of from every tool call.
-func (a *App) mcpPolicyGate() *result.Err {
-	if a.policyOff {
+func (a *App) mcpPolicyGate(disableSafetyPolicies bool) *result.Err {
+	if a.policyOff && !disableSafetyPolicies {
 		return &result.Err{
 			Code:    result.CodeUsage,
 			Message: "refusing to serve MCP with --policy-off: the policy allow-list is the boundary this mode depends on",
@@ -200,7 +202,8 @@ func (a *App) mcpPolicyGate() *result.Err {
 	cfg := a.policyConfig()
 	// An MCP server is exactly the caller RequireAllow exists for: with no
 	// allow-list, nothing is permitted, so there is nothing to serve.
-	cfg.RequireAllow = true
+	// except when --disable-safety-policies exist
+	cfg.RequireAllow = !disableSafetyPolicies
 
 	if m := a.defaults.Policy.Malformed; m != "" {
 		return a.policyConfigErr(m, a.defaults.Policy.Source)
@@ -208,7 +211,7 @@ func (a *App) mcpPolicyGate() *result.Err {
 	if _, err := policy.New(cfg); err != nil {
 		return a.policyConfigErr(err.Error(), cfg.Source)
 	}
-	if !cfg.Present || !cfg.Enabled || len(cfg.Allow) == 0 {
+	if !disableSafetyPolicies && (!cfg.Present || !cfg.Enabled || len(cfg.Allow) == 0) {
 		a.printPolicyRequirement()
 		return &result.Err{
 			Code: result.CodeUsage,
