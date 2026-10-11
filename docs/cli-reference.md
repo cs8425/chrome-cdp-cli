@@ -862,6 +862,8 @@ It is a front end, not a fork: a tool call becomes the same argv you would type,
 | `--allow-eval` | off | expose `eval` and `raw`, which are denied in this mode by default |
 | `--target <spec>` | — | pin the server to one tab; otherwise each tool takes a `target` |
 | `--include-structured-content` | off | workaround for some mcp client which don't parse `structuredContent` field |
+| `--http` | — | Run as a stateful Streamable HTTP MCP server, e.g. for llama.cpp's built-in Web UI |
+| `--cors` | off | Enable CORS for browser clients that connect from a different origin, including a different port |
 
 Global flags (`--timeout`, `--no-daemon`, `--port`, `--profile-dir`, `--allow`, config file) apply unchanged, and the daemon still holds the connection — a long-lived server over one shared connection is exactly what it is for.
 Transport is stdio only; there is no HTTP or SSE mode, because a network-reachable server driving your authenticated browser is a different security posture.

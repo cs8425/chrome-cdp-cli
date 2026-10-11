@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -331,6 +332,51 @@ func (s *Server) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 // rather than a subprocess.
 func (s *Server) Serve(ctx context.Context, t sdk.Transport) error {
 	return s.sdk.Run(ctx, t)
+}
+
+// return mcp sdk server for other usage, eg: StreamableHTTP mode
+func (s *Server) GetMcpServer() *sdk.Server {
+	return s.sdk
+}
+
+func (s *Server) ServeHttp(ctx context.Context, bindAddr string, cors bool) error {
+	mcpHandler := sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
+		return s.GetMcpServer()
+	}, &sdk.StreamableHTTPOptions{
+		Stateless:                  false,
+		DisableLocalhostProtection: cors,
+	})
+	var handler http.Handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr := w.Header()
+		switch r.Method {
+		case http.MethodOptions: // fix for bad sdk http method handle
+			hdr.Add("Access-Control-Allow-Origin", "*")
+			hdr.Add("Access-Control-Allow-Methods", "GET,HEAD,PUT,PATCH,POST,DELETE")
+			hdr.Add("Vary", "Access-Control-Request-Headers")
+			hdr.Add("Access-Control-Expose-Headers", "Mcp-Session-Id")
+			hdr.Add("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if cors {
+			hdr.Add("Access-Control-Allow-Origin", "*")
+			hdr.Add("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		}
+		mcpHandler.ServeHTTP(w, r)
+	})
+	if !cors {
+		protection := http.NewCrossOriginProtection()
+		handler = protection.Handler(handler)
+	}
+	httpSrv := &http.Server{
+		Addr:    bindAddr,
+		Handler: handler,
+	}
+	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 type nopWriteCloser struct{ io.Writer }

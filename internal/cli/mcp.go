@@ -46,6 +46,8 @@ func (a *App) cmdMCP() *cobra.Command {
 	var allowEval bool
 	var tools string
 	var includeStructuredContent bool
+	var bindHttp string
+	var cors bool
 	c := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve these verbs to an MCP client over stdio (requires a configured policy)",
@@ -88,6 +90,17 @@ func (a *App) cmdMCP() *cobra.Command {
 				return nil
 			}
 
+			// mcp via http
+			if bindHttp != "" {
+				if err := srv.ServeHttp(context.Background(), bindHttp, cors); err != nil {
+					fmt.Fprintf(a.err, "chrome-cdp mcp: %v\n", err)
+					a.exitCode = result.ExitGeneric
+					return nil
+				}
+				a.exitCode = result.ExitOK
+				return nil
+			}
+
 			// From here on stdout is protocol. protectStdout hands back the
 			// real stream and points everything else at stderr.
 			out := a.protectStdout()
@@ -112,6 +125,8 @@ func (a *App) cmdMCP() *cobra.Command {
 		"expose `eval` and `raw`, which can navigate the tab out of the allow-list (denied by default in this mode)")
 	c.Flags().StringVar(&tools, "tools", mcp.SetDefault, "tool set: default | full | a comma-separated list of tool names")
 	c.Flags().BoolVar(&includeStructuredContent, "include-structured-content", false, "workaround for some mcp client which don't parse `structuredContent` field")
+	c.Flags().StringVar(&bindHttp, "http", "", "run as a stateful Streamable HTTP MCP server, e.g. for llama.cpp's built-in Web UI")
+	c.Flags().BoolVar(&cors, "cors", false, "enable CORS for browser clients that connect from a different origin, including a different port")
 	return c
 }
 
